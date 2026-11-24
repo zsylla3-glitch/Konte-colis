@@ -378,7 +378,8 @@ async function logout(){try{await sb.auth.signOut()}catch(e){}await idbWipe();lo
 var CSS='#gate{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:20px;background:linear-gradient(160deg,var(--hero1),var(--hero2));overflow:auto}'+
 '#gate[hidden]{display:none}#gate form{background:var(--panel);color:var(--text);border-radius:24px;padding:26px 22px;width:min(420px,100%);display:flex;flex-direction:column;gap:10px;box-shadow:0 20px 50px rgba(0,0,0,.35)}'+
 '#gate img{width:96px;height:96px;align-self:center;border-radius:50%}#gate h1{font-size:22px;text-align:center;margin:4px 0 0}#gate .gsub{margin:0 0 8px;text-align:center;color:var(--muted)}'+
-'#gate label{font-weight:600;font-size:13px;color:var(--muted)}#gate .btn{margin-top:8px}#g-msg{min-height:20px;margin:0;color:var(--bad);font-weight:600;font-size:14px}';
+'#gate label{font-weight:600;font-size:13px;color:var(--muted)}#gate .btn{margin-top:8px}#g-msg,#r-msg{min-height:20px;margin:0;color:var(--bad);font-weight:600;font-size:14px}#g-msg.ok,#r-msg.ok{color:var(--ok)}'+
+'#gate .linkbtn{background:none;border:0;padding:8px 4px;color:var(--ink);font-weight:700;font-size:14px;text-decoration:underline;cursor:pointer;align-self:center;min-height:40px}#gate .linkbtn:disabled{opacity:.5;cursor:default}#gate form[hidden]{display:none}';
 function ensureGate(){
   if(document.getElementById('gate'))return document.getElementById('gate');
   var st=document.createElement('style');st.textContent=CSS;document.head.appendChild(st);
@@ -386,14 +387,20 @@ function ensureGate(){
   g.innerHTML='<form id="gate-form" autocomplete="on"><img id="gate-logo" alt="Logo Konté et Frère Colis"><h1>Konté et Frère Colis</h1><p class="gsub">Accès réservé aux associés</p>'+
   '<label for="g-email">Adresse e-mail</label><input id="g-email" type="email" autocomplete="username" inputmode="email" required>'+
   '<label for="g-pass">Mot de passe</label><input id="g-pass" type="password" autocomplete="current-password" required>'+
-  '<button id="g-btn" class="btn accent" type="submit">Se connecter</button><p id="g-msg" role="alert"></p></form>';
+  '<button id="g-btn" class="btn accent" type="submit">Se connecter</button><button id="g-forgot" class="linkbtn" type="button">Mot de passe oublié ?</button><p id="g-msg" role="alert"></p></form>'+
+  '<form id="rec-form" autocomplete="off" hidden><img id="rec-logo" alt="Logo Konté et Frère Colis"><h1>Nouveau mot de passe</h1><p class="gsub">Choisis un mot de passe long (8 caractères ou plus).</p>'+
+  '<label for="r-pass">Nouveau mot de passe</label><input id="r-pass" type="password" autocomplete="new-password" minlength="8" required>'+
+  '<label for="r-pass2">Retape le mot de passe</label><input id="r-pass2" type="password" autocomplete="new-password" minlength="8" required>'+
+  '<button id="r-btn" class="btn accent" type="submit">Enregistrer</button><p id="r-msg" role="alert"></p></form>';
   document.body.appendChild(g);
-  try{document.getElementById('gate-logo').src=LOGO}catch(e){}
+  try{document.getElementById('gate-logo').src=LOGO;document.getElementById('rec-logo').src=LOGO}catch(e){}
   document.getElementById('gate-form').addEventListener('submit',onLogin);
+  document.getElementById('g-forgot').addEventListener('click',onForgot);
+  document.getElementById('rec-form').addEventListener('submit',onRecover);
   return g;
 }
 function showGate(msg,hideForm){
-  var g=ensureGate();g.hidden=false;document.getElementById('g-msg').textContent=msg||'';
+  var g=ensureGate();g.hidden=false;document.getElementById('g-msg').className='';document.getElementById('g-msg').textContent=msg||'';
   if(hideForm){var f=document.getElementById('gate-form');[].forEach.call(f.querySelectorAll('label,input,button'),function(x){x.hidden=true})}
 }
 async function onLogin(e){
@@ -405,6 +412,39 @@ async function onLogin(e){
   if(r.error||!r.data||!r.data.session){fails++;m.textContent=/rate|too many/i.test(String(r.error&&r.error.message))?'Trop d\'essais. Attends une minute puis réessaie.':'Adresse e-mail ou mot de passe incorrect.';b.disabled=false;return}
   document.getElementById('g-pass').value='';fails=0;b.disabled=false;
   await enter(r.data.session);
+}
+var recovering=false;
+async function onForgot(){
+  var m=document.getElementById('g-msg'),b=document.getElementById('g-forgot'),em=document.getElementById('g-email').value.trim();
+  m.className='';
+  if(!em){m.textContent='Écris d\'abord ton adresse e-mail dans la case ci-dessus.';return}
+  b.disabled=true;
+  var r=null;
+  try{r=await sb.auth.resetPasswordForEmail(em,{redirectTo:location.origin+location.pathname})}catch(e){}
+  if(r&&r.error&&/rate|too many|seconds/i.test(String(r.error.message))){m.textContent='Trop de demandes. Attends quelques minutes puis réessaie.';setTimeout(function(){b.disabled=false},30000);return}
+  m.className='ok';m.textContent='Si cette adresse est enregistrée, un e-mail avec un lien vient d\'être envoyé. Regarde aussi dans les courriers indésirables (spams).';
+  setTimeout(function(){b.disabled=false},30000);
+}
+function showRecovery(){
+  var g=ensureGate();g.hidden=false;
+  document.getElementById('gate-form').hidden=true;document.getElementById('rec-form').hidden=false;
+}
+async function onRecover(e){
+  e.preventDefault();
+  var a=document.getElementById('r-pass').value,c=document.getElementById('r-pass2').value,m=document.getElementById('r-msg'),b=document.getElementById('r-btn');
+  m.className='';
+  if(a.length<8){m.textContent='Le mot de passe doit avoir au moins 8 caractères.';return}
+  if(a!==c){m.textContent='Les deux mots de passe ne sont pas identiques.';return}
+  b.disabled=true;
+  var r=await sb.auth.updateUser({password:a});
+  b.disabled=false;
+  if(r&&r.error){m.textContent=/same|different/i.test(String(r.error.message))?'Choisis un mot de passe différent de l\'ancien.':'Impossible de changer le mot de passe. Le lien a peut-être expiré : reviens à la connexion et refais « Mot de passe oublié ? ».';return}
+  document.getElementById('r-pass').value='';document.getElementById('r-pass2').value='';
+  recovering=false;
+  try{history.replaceState(null,'',location.pathname)}catch(x){}
+  var s=await sb.auth.getSession();
+  if(s&&s.data&&s.data.session){document.getElementById('rec-form').hidden=true;document.getElementById('gate-form').hidden=false;await enter(s.data.session)}
+  else{document.getElementById('rec-form').hidden=true;document.getElementById('gate-form').hidden=false;showGate('Mot de passe changé. Connecte-toi avec le nouveau.')}
 }
 function hideGate(){var g=document.getElementById('gate');if(g)g.hidden=true}
 
@@ -442,9 +482,14 @@ async function start(){
   patchViews();
   var ok=/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(cfg.SUPABASE_URL||'')&&String(cfg.SUPABASE_ANON_KEY||'').length>30;
   if(!ok||!window.supabase){showGate('Le site n\'est pas encore configuré (fichier config.js).',true);return}
-  sb=window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false,storageKey:'konte-auth'}});
+  var hh=location.hash||'';recovering=/type=recovery/.test(hh);
+  var linkErr=/error_code=|error=access_denied|error_description=/.test(hh);
+  sb=window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true,storageKey:'konte-auth'}});
   sb.auth.onAuthStateChange(function(ev){if(ev==='SIGNED_OUT'&&entered){location.reload()}});
   var s=await sb.auth.getSession();
+  if(linkErr){try{history.replaceState(null,'',location.pathname)}catch(x){}
+    if(!(s&&s.data&&s.data.session)||!recovering){showGate('Ce lien a expiré ou a déjà été utilisé. Demande un nouveau lien avec « Mot de passe oublié ? ».');return}}
+  if(recovering&&s&&s.data&&s.data.session){showRecovery();return}
   if(s&&s.data&&s.data.session)await enter(s.data.session);else showGate('');
 }
 window.Standalone={start:start};
